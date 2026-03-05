@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\Review;
 use App\Models\RecommendationProduct;
+use App\Services\AIService; // Используем сервис
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -18,12 +19,11 @@ class ProcessReviewAI implements ShouldQueue
     public function __construct(public Review $review)
     {}
 
-    public function handle(): void
+    public function handle(AIService $aiService): void
     {
         $this->review->update(['status' => 'processing']);
 
         try {
-            // 1. Находим рекомендации для товара (только если отзыв хороший)
             $recommendation = null;
             if ($this->review->rating >= 4) {
                 $recommendation = RecommendationProduct::where('source_sku', $this->review->product_sku)
@@ -31,26 +31,19 @@ class ProcessReviewAI implements ShouldQueue
                     ->first();
             }
 
-            $recText = $recommendation 
-                ? "Посоветуй также наш товар: {$recommendation->recommendation_sku}." 
-                : "";
+            // Вызов централизованного сервиса
+            $aiResponse = $aiService->generateResponse(
+                $this->review->review_text,
+                $this->review->rating,
+                $recommendation?->recommendation_sku
+            );
 
-            // 2. Логика обработки в зависимости от рейтинга (LARA-11)
-            if ($this->review->rating <= 3) {
-                // Промпт для негативного отзыва (извинение, работа с возражениями)
-                $aiResponse = "Нам очень жаль, что товар {$this->review->product_sku} не оправдал ваших ожиданий. Мы обязательно разберемся в ситуации. Спасибо за обратную связь, она помогает нам стать лучше.";
-            } else {
-                // Промпт для позитивного отзыва
-                $aiResponse = "Спасибо за ваш отзыв на {$this->review->product_sku}! Нам очень приятно. Мы рады, что вы оценили нас на {$this->review->rating} звезд. {$recText}";
-            }
-
-            // 3. Сохраняем результат
             $this->review->update([
                 'response_text' => $aiResponse,
                 'status' => 'replied'
             ]);
 
-            Log::info("AI Response generated for review {$this->review->id} (Rating: {$this->review->rating})");
+            Log::info("AI Response generated via AIService for review {$this->review->id}");
 
         } catch (\Exception $e) {
             $this->review->update(['status' => 'failed']);
