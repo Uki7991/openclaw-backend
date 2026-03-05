@@ -23,18 +23,26 @@ class ProcessReviewAI implements ShouldQueue
         $this->review->update(['status' => 'processing']);
 
         try {
-            // 1. Находим рекомендации для товара (из LARA-8)
-            $recommendation = RecommendationProduct::where('source_sku', $this->review->product_sku)
-                ->where('user_id', $this->review->marketplaceConnection->user_id)
-                ->first();
+            // 1. Находим рекомендации для товара (только если отзыв хороший)
+            $recommendation = null;
+            if ($this->review->rating >= 4) {
+                $recommendation = RecommendationProduct::where('source_sku', $this->review->product_sku)
+                    ->where('user_id', $this->review->marketplaceConnection->user_id)
+                    ->first();
+            }
 
             $recText = $recommendation 
                 ? "Посоветуй также наш товар: {$recommendation->recommendation_sku}." 
                 : "";
 
-            // 2. Mock ИИ-генерации (LARA-11)
-            // В реальной задаче здесь будет вызов Gemini API
-            $aiResponse = "Спасибо за ваш отзыв на {$this->review->product_sku}! Нам очень приятно. Мы рады, что вы оценили нас на {$this->review->rating} звезд. {$recText}";
+            // 2. Логика обработки в зависимости от рейтинга (LARA-11)
+            if ($this->review->rating <= 3) {
+                // Промпт для негативного отзыва (извинение, работа с возражениями)
+                $aiResponse = "Нам очень жаль, что товар {$this->review->product_sku} не оправдал ваших ожиданий. Мы обязательно разберемся в ситуации. Спасибо за обратную связь, она помогает нам стать лучше.";
+            } else {
+                // Промпт для позитивного отзыва
+                $aiResponse = "Спасибо за ваш отзыв на {$this->review->product_sku}! Нам очень приятно. Мы рады, что вы оценили нас на {$this->review->rating} звезд. {$recText}";
+            }
 
             // 3. Сохраняем результат
             $this->review->update([
@@ -42,7 +50,7 @@ class ProcessReviewAI implements ShouldQueue
                 'status' => 'replied'
             ]);
 
-            Log::info("AI Response generated for review {$this->review->id}");
+            Log::info("AI Response generated for review {$this->review->id} (Rating: {$this->review->rating})");
 
         } catch (\Exception $e) {
             $this->review->update(['status' => 'failed']);
