@@ -1,0 +1,10 @@
+.env
+.jira/
+.clawhub/
+.openclaw/
+jira-bin
+gh-bin
+jira-init.sh
+jira-cli.tar.gz
+*.tar.gz
+node_modules/
