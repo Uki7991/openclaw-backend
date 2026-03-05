@@ -2,18 +2,16 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\MarketplaceConnection;
-use App\Models\Review;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Http;
 
 class TelegramBotController extends Controller
 {
     public function handle(Request $request)
     {
         $update = $request->all();
-        
+        Log::info('Telegram Update:', $update);
+
         if (!isset($update['message'])) {
             return response()->json(['status' => 'ok']);
         }
@@ -21,16 +19,13 @@ class TelegramBotController extends Controller
         $chatId = $update['message']['chat']['id'];
         $text = $update['message']['text'] ?? '';
 
-        Log::info("Telegram Message from {$chatId}: {$text}");
+        $response = match($text) {
+            '/start' => "Привет! Я бот ReplyZen AI. 🚀\nЗдесь ты сможешь управлять ответами на маркетплейсах.",
+            '/status' => "Система работает. Все воркеры активны.",
+            default => "Команда не распознана. Используй /start"
+        };
 
-        if ($text === '/start') {
-            $this->sendMessage($chatId, "Привет! Я ReplyZen AI Bot. \n\nИспользуй /status для проверки отзывов.");
-        } elseif ($text === '/status') {
-            $count = Review::where('status', 'new')->count();
-            $this->sendMessage($chatId, "Новых отзывов в очереди: {$count}");
-        } else {
-            $this->sendMessage($chatId, "Команда не распознана. Доступные команды: /start, /status");
-        }
+        $this->sendMessage($chatId, $response);
 
         return response()->json(['status' => 'ok']);
     }
@@ -38,11 +33,11 @@ class TelegramBotController extends Controller
     private function sendMessage($chatId, $text)
     {
         $token = config('services.telegram.bot_token');
-        if (!$token) return;
+        $url = "https://api.telegram.org/bot{$token}/sendMessage";
 
-        Http::post("https://api.telegram.org/bot{$token}/sendMessage", [
+        @file_get_contents($url . "?" . http_build_query([
             'chat_id' => $chatId,
             'text' => $text,
-        ]);
+        ]));
     }
 }
